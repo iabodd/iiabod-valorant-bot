@@ -20,7 +20,7 @@ const client = new Client({
         GatewayIntentBits.GuildMembers, 
         GatewayIntentBits.MessageContent
     ],
-    rest: { timeout: 60000 } 
+    rest: { timeout: 90000 } // زيادة وقت انتظار ديسكورد
 });
 
 let users = {};
@@ -54,7 +54,7 @@ async function fetchStatsFromWeb(riotId) {
         
         const page = await browser.newPage();
 
-        // 🚀 تسريع السحب: منع تحميل العناصر غير الضرورية
+        // 🚀 تسريع السحب: منع تحميل العناصر الثقيلة
         await page.setRequestInterception(true);
         page.on('request', (req) => {
             if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
@@ -66,11 +66,11 @@ async function fetchStatsFromWeb(riotId) {
 
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         
-        // الانتظار حتى تحميل الهيكل الأساسي (زيادة الوقت لـ 90 ثانية لضمان الاستقرار في Render)
+        // الانتظار حتى تحميل الهيكل الأساسي (وقت صبّر 90 ثانية)
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
         
-        // 🎯 التعديل المهم: ننتظر ظهور الأرقام الفعلية (الـ stats) وليس فقط الحاويات الفارغة
-        await page.waitForSelector('.numbers', { timeout: 30000 }).catch(() => null);
+        // 🎯 الانتظار حتى ظهور الأرقام الفعلية
+        await page.waitForSelector('.numbers', { timeout: 40000 }).catch(() => null);
 
         const stats = await page.evaluate(() => {
             const getVal = (label) => {
@@ -108,6 +108,9 @@ async function fetchStatsFromWeb(riotId) {
 
 async function updateLeaderboardChannel() {
     console.log('🔄 Updating Auto-Leaderboard...');
+    const channel = await client.channels.fetch(config.channelId).catch(() => null);
+    if (!channel) return console.log('❌ Leaderboard channel not found!');
+
     const userIds = Object.keys(users);
     if (userIds.length === 0) return console.log('⚠️ No users in the list.');
 
@@ -115,12 +118,12 @@ async function updateLeaderboardChannel() {
     for (const userId of userIds) {
         const riotId = users[userId].riotId;
         const stats = await fetchStatsFromWeb(riotId);
-        if (stats && stats.matches !== "0") { // نتأكد إن الحساب سحب بيانات فعلية
+        if (stats && stats.matches !== "0") {
             leaderboardData.push({ userId, riotId, kd: stats.kd, wr: stats.wr });
         }
     }
 
-    if (leaderboardData.length === 0) return console.log('❌ Failed to fetch any real stats for leaderboard.');
+    if (leaderboardData.length === 0) return console.log('❌ Failed to fetch any real stats.');
 
     leaderboardData.sort((a, b) => b.kd - a.kd);
 
@@ -134,11 +137,7 @@ async function updateLeaderboardChannel() {
 
     let rank = 1;
     for (const player of leaderboardData) {
-        let rankEmoji = '🏅';
-        if (rank === 1) rankEmoji = '🥇';
-        if (rank === 2) rankEmoji = '🥈';
-        if (rank === 3) rankEmoji = '🥉';
-
+        let rankEmoji = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '🏅';
         embed.addFields({
             name: `${rankEmoji} Rank #${rank} - ${player.riotId}`,
             value: `<@${player.userId}>\n**K/D:** \`${player.kd}\` | **Win Rate:** \`${player.wr}\``,
@@ -148,21 +147,18 @@ async function updateLeaderboardChannel() {
     }
 
     try {
-        const channel = await client.channels.fetch(config.channelId).catch(() => null);
-        if (!channel) return console.log('❌ Leaderboard channel not found!');
-
         const messages = await channel.messages.fetch({ limit: 10 });
         const oldMessage = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0 && m.embeds[0].title === '🏆 Valorant Server Leaderboard');
 
         if (oldMessage) {
             await oldMessage.edit({ embeds: [embed] });
-            console.log('✅ Auto-Leaderboard updated in Discord.');
+            console.log('✅ Auto-Leaderboard updated.');
         } else {
             await channel.send({ embeds: [embed] });
-            console.log('✅ Auto-Leaderboard created in Discord.');
+            console.log('✅ Auto-Leaderboard created.');
         }
     } catch (err) {
-        console.error('❌ Discord Update Error:', err);
+        console.error('❌ Error updating leaderboard message:', err.message);
     }
 }
 
@@ -188,7 +184,8 @@ client.once(Events.ClientReady, async () => {
         console.error('❌ Command Registry Error:', error);
     }
 
-    setTimeout(updateLeaderboardChannel, 15000);
+    // الانتظار قليلاً لضمان استقرار السيرفر قبل أول تحديث
+    setTimeout(updateLeaderboardChannel, 20000);
     setInterval(updateLeaderboardChannel, 30 * 60 * 1000);
 });
 
@@ -196,21 +193,21 @@ client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'link') {
-        await interaction.deferReply({ ephemeral: true });
-        const riotId = interaction.options.getString('riotid');
-
-        if (!riotId.includes('#')) {
-            return interaction.editReply('❌ الصيغة خاطئة! مثال: `Name#TAG`');
-        }
-
         try {
+            await interaction.deferReply({ ephemeral: true });
+            const riotId = interaction.options.getString('riotid');
+
+            if (!riotId.includes('#')) {
+                return interaction.editReply('❌ الصيغة خاطئة! مثال: `Name#TAG`');
+            }
+
             users[interaction.user.id] = { riotId };
             fs.writeFileSync('./users.json', JSON.stringify(users, null, 2));
-            await interaction.editReply(`✅ تم ربط حسابك (**${riotId}**) بنجاح! سيتم تحديث ترتيبك قريباً.`);
+            await interaction.editReply(`✅ تم ربط حسابك (**${riotId}**) بنجاح! سيتم تحديث الترتيب قريباً.`);
             updateLeaderboardChannel(); 
         } catch (err) {
             console.error(err);
-            await interaction.editReply('❌ حدث خطأ أثناء حفظ البيانات.');
+            if (interaction.deferred) await interaction.editReply('❌ حدث خطأ أثناء الحفظ. جرب مرة أخرى.').catch(() => null);
         }
     }
 
@@ -219,10 +216,10 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ content: '❌ يجب عليك ربط حسابك أولاً باستخدام `/link`.', ephemeral: true });
         }
 
-        await interaction.deferReply(); 
-        
         try {
+            await interaction.deferReply(); 
             const stats = await fetchStatsFromWeb(users[interaction.user.id].riotId);
+            
             if (!stats) return interaction.editReply('❌ فشل جلب البيانات. تأكد أن حسابك Public في Tracker.gg.');
 
             const profileEmbed = new EmbedBuilder()
@@ -243,7 +240,7 @@ client.on('interactionCreate', async interaction => {
             await interaction.editReply({ embeds: [profileEmbed] });
         } catch (err) {
             console.error(err);
-            await interaction.editReply('❌ حدث خطأ تقني أثناء جلب الملف الشخصي.');
+            if (interaction.deferred) await interaction.editReply('❌ حدث خطأ تقني. السيرفر بطيء حالياً، جرب لاحقاً.').catch(() => null);
         }
     }
 });
