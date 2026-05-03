@@ -1,0 +1,13 @@
+{
+  "name": "valorant-leaderboard-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "discord.js": "^14.26.4",
+    "express": "^5.2.1",
+    "fs": "0.0.1-security",
+    "puppeteer": "^21.11.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}
