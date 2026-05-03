@@ -5,9 +5,11 @@ const fs = require('fs');
 const config = require('./config.json');
 const express = require('express');
 
+// 🌐 سيرفر ويب متوافق مع Render
 const app = express();
+const port = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Valorant Bot is Alive and Running!'));
-app.listen(3000, () => console.log('🌐 Web server is running on port 3000'));
+app.listen(port, () => console.log(`🌐 Web server is running on port ${port}`));
 
 puppeteer.use(StealthPlugin());
 
@@ -36,20 +38,23 @@ async function fetchStatsFromWeb(riotId) {
     if (parts.length < 2) return null;
     const url = `https://tracker.gg/valorant/profile/riot/${encodeURIComponent(parts[0].trim())}%23${parts[1].trim()}/overview`;
     
-    const browser = await puppeteer.launch({ 
-        headless: "new", 
-        args: [
-            '--no-sandbox', 
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--disable-gpu'
-        ] 
-    });
-    
-    const page = await browser.newPage();
-    
+    let browser;
     try {
+        // 🛡️ [تعديل] حماية المتصفح عشان ما يطفي البوت إذا فشل الإقلاع
+        browser = await puppeteer.launch({ 
+            headless: "new", 
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--disable-gpu',
+                '--no-zygote',
+                '--single-process' // يخفف استهلاك الرام لأقصى حد
+            ] 
+        });
+        
+        const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
         await page.waitForSelector('.main', { timeout: 15000 }).catch(() => null);
@@ -78,7 +83,8 @@ async function fetchStatsFromWeb(riotId) {
         await browser.close();
         return stats;
     } catch (e) {
-        await browser.close();
+        console.error(`❌ Puppeteer Error for ${riotId}:`, e.message);
+        if (browser) await browser.close().catch(() => null);
         return null;
     }
 }
