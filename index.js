@@ -5,7 +5,7 @@ const fs = require('fs');
 const config = require('./config.json');
 const express = require('express');
 
-// 🌐 سيرفر ويب متوافق مع Render لضمان بقاء الخدمة Live
+// 🌐 سيرفر ويب لضمان بقاء الخدمة متصلة على Render
 const app = express();
 const port = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Valorant Bot is Alive!'));
@@ -54,7 +54,7 @@ async function fetchStatsFromWeb(riotId) {
         
         const page = await browser.newPage();
 
-        // 🚀 تسريع السحب: منع تحميل الصور والملفات الثقيلة لتجنب الـ Timeout في Render
+        // 🚀 تسريع السحب: منع تحميل العناصر غير الضرورية
         await page.setRequestInterception(true);
         page.on('request', (req) => {
             if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
@@ -66,21 +66,24 @@ async function fetchStatsFromWeb(riotId) {
 
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         
-        // الانتظار فقط حتى تحميل هيكل الصفحة الأساسي وزيادة وقت الصبر لـ 90 ثانية
+        // الانتظار حتى تحميل الهيكل الأساسي (زيادة الوقت لـ 90 ثانية لضمان الاستقرار في Render)
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
         
-        // ننتظر ظهور عنصر البيانات الأساسي بحد أقصى 20 ثانية إضافية
-        await page.waitForSelector('.main', { timeout: 20000 }).catch(() => null);
+        // 🎯 التعديل المهم: ننتظر ظهور الأرقام الفعلية (الـ stats) وليس فقط الحاويات الفارغة
+        await page.waitForSelector('.numbers', { timeout: 30000 }).catch(() => null);
 
         const stats = await page.evaluate(() => {
             const getVal = (label) => {
                 const el = Array.from(document.querySelectorAll('.stat')).find(e => e.innerText.includes(label));
-                return el ? el.querySelector('.value').innerText : "0";
+                if (!el) return "0";
+                const valEl = el.querySelector('.value');
+                return valEl ? valEl.innerText.trim() : "0";
             };
+            
             const matchRows = Array.from(document.querySelectorAll('.match-row')).slice(0, 3);
             const recent = matchRows.map(row => ({
                 win: row.classList.contains('is-win'),
-                kills: row.querySelector('.stats .value')?.innerText || "0"
+                kills: row.querySelector('.stats .value')?.innerText.trim() || "0"
             }));
 
             return {
@@ -106,18 +109,18 @@ async function fetchStatsFromWeb(riotId) {
 async function updateLeaderboardChannel() {
     console.log('🔄 Updating Auto-Leaderboard...');
     const userIds = Object.keys(users);
-    if (userIds.length === 0) return console.log('⚠️ No users to update.');
+    if (userIds.length === 0) return console.log('⚠️ No users in the list.');
 
     let leaderboardData = [];
     for (const userId of userIds) {
         const riotId = users[userId].riotId;
         const stats = await fetchStatsFromWeb(riotId);
-        if (stats) {
+        if (stats && stats.matches !== "0") { // نتأكد إن الحساب سحب بيانات فعلية
             leaderboardData.push({ userId, riotId, kd: stats.kd, wr: stats.wr });
         }
     }
 
-    if (leaderboardData.length === 0) return console.log('❌ Failed to fetch stats for auto-update.');
+    if (leaderboardData.length === 0) return console.log('❌ Failed to fetch any real stats for leaderboard.');
 
     leaderboardData.sort((a, b) => b.kd - a.kd);
 
@@ -153,13 +156,13 @@ async function updateLeaderboardChannel() {
 
         if (oldMessage) {
             await oldMessage.edit({ embeds: [embed] });
-            console.log('✅ Auto-Leaderboard edited successfully.');
+            console.log('✅ Auto-Leaderboard updated in Discord.');
         } else {
             await channel.send({ embeds: [embed] });
-            console.log('✅ Auto-Leaderboard sent successfully.');
+            console.log('✅ Auto-Leaderboard created in Discord.');
         }
     } catch (err) {
-        console.error('❌ Error in auto-updating channel:', err);
+        console.error('❌ Discord Update Error:', err);
     }
 }
 
@@ -178,15 +181,13 @@ client.once(Events.ClientReady, async () => {
     
     const rest = new REST({ version: '10' }).setToken(config.token);
     try {
-        console.log('🧹 Cleaning old commands and registering new ones...');
         await rest.put(Routes.applicationCommands(config.clientId), { body: [] });
         await rest.put(Routes.applicationGuildCommands(config.clientId, config.guildId), { body: commands });
         console.log('✨ Slash Commands Registered Successfully!');
     } catch (error) {
-        console.error('❌ Failed to register commands:', error);
+        console.error('❌ Command Registry Error:', error);
     }
 
-    // الانتظار قليلاً قبل أول تحديث للتأكد من استقرار السيرفر
     setTimeout(updateLeaderboardChannel, 15000);
     setInterval(updateLeaderboardChannel, 30 * 60 * 1000);
 });
@@ -205,7 +206,7 @@ client.on('interactionCreate', async interaction => {
         try {
             users[interaction.user.id] = { riotId };
             fs.writeFileSync('./users.json', JSON.stringify(users, null, 2));
-            await interaction.editReply(`✅ تم ربط حسابك (**${riotId}**) بنجاح!`);
+            await interaction.editReply(`✅ تم ربط حسابك (**${riotId}**) بنجاح! سيتم تحديث ترتيبك قريباً.`);
             updateLeaderboardChannel(); 
         } catch (err) {
             console.error(err);
@@ -222,7 +223,7 @@ client.on('interactionCreate', async interaction => {
         
         try {
             const stats = await fetchStatsFromWeb(users[interaction.user.id].riotId);
-            if (!stats) return interaction.editReply('❌ فشل جلب البيانات. تأكد أن حسابك العام (Public) أو حاول لاحقاً.');
+            if (!stats) return interaction.editReply('❌ فشل جلب البيانات. تأكد أن حسابك Public في Tracker.gg.');
 
             const profileEmbed = new EmbedBuilder()
                 .setTitle(`👤 Combatant: ${interaction.user.username}`)
