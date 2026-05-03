@@ -5,10 +5,10 @@ const fs = require('fs');
 const config = require('./config.json');
 const express = require('express');
 
-// 🌐 سيرفر ويب متوافق مع Render
+// 🌐 سيرفر ويب متوافق مع Render لضمان بقاء الخدمة Live
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Valorant Bot is Alive and Running!'));
+app.get('/', (req, res) => res.send('Valorant Bot is Alive!'));
 app.listen(port, () => console.log(`🌐 Web server is running on port ${port}`));
 
 puppeteer.use(StealthPlugin());
@@ -40,24 +40,37 @@ async function fetchStatsFromWeb(riotId) {
     
     let browser;
     try {
-        // 🛡️ [تعديل] حماية المتصفح عشان ما يطفي البوت إذا فشل الإقلاع
         browser = await puppeteer.launch({ 
             headless: "new", 
             args: [
                 '--no-sandbox', 
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
                 '--disable-gpu',
                 '--no-zygote',
-                '--single-process' // يخفف استهلاك الرام لأقصى حد
+                '--single-process'
             ] 
         });
         
         const page = await browser.newPage();
+
+        // 🚀 تسريع السحب: منع تحميل الصور والملفات الثقيلة لتجنب الـ Timeout في Render
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+            if (['image', 'stylesheet', 'font', 'media'].includes(req.resourceType())) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
+
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
-        await page.waitForSelector('.main', { timeout: 15000 }).catch(() => null);
+        
+        // الانتظار فقط حتى تحميل هيكل الصفحة الأساسي وزيادة وقت الصبر لـ 90 ثانية
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90000 });
+        
+        // ننتظر ظهور عنصر البيانات الأساسي بحد أقصى 20 ثانية إضافية
+        await page.waitForSelector('.main', { timeout: 20000 }).catch(() => null);
 
         const stats = await page.evaluate(() => {
             const getVal = (label) => {
@@ -80,6 +93,7 @@ async function fetchStatsFromWeb(riotId) {
                 recent: recent
             };
         });
+        
         await browser.close();
         return stats;
     } catch (e) {
@@ -172,7 +186,8 @@ client.once(Events.ClientReady, async () => {
         console.error('❌ Failed to register commands:', error);
     }
 
-    setTimeout(updateLeaderboardChannel, 10000);
+    // الانتظار قليلاً قبل أول تحديث للتأكد من استقرار السيرفر
+    setTimeout(updateLeaderboardChannel, 15000);
     setInterval(updateLeaderboardChannel, 30 * 60 * 1000);
 });
 
@@ -190,7 +205,7 @@ client.on('interactionCreate', async interaction => {
         try {
             users[interaction.user.id] = { riotId };
             fs.writeFileSync('./users.json', JSON.stringify(users, null, 2));
-            await interaction.editReply(`✅ تم ربط حسابك (**${riotId}**) بنجاح! إحصائياتك رح تظهر مع التحديث القادم لليدربورد.`);
+            await interaction.editReply(`✅ تم ربط حسابك (**${riotId}**) بنجاح!`);
             updateLeaderboardChannel(); 
         } catch (err) {
             console.error(err);
@@ -207,7 +222,7 @@ client.on('interactionCreate', async interaction => {
         
         try {
             const stats = await fetchStatsFromWeb(users[interaction.user.id].riotId);
-            if (!stats) return interaction.editReply('❌ فشل جلب البيانات. تأكد أن حسابك العام (Public).');
+            if (!stats) return interaction.editReply('❌ فشل جلب البيانات. تأكد أن حسابك العام (Public) أو حاول لاحقاً.');
 
             const profileEmbed = new EmbedBuilder()
                 .setTitle(`👤 Combatant: ${interaction.user.username}`)
