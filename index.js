@@ -43,10 +43,8 @@ async function fetchStatsFromWeb(riotId) {
 
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
         
-        // 🛠️ زيادة وقت الانتظار لضمان تحميل الموقع بالكامل في Render
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
         
-        // ننتظر ظهور الأرقام الفعلية لمدة كافية
         await page.waitForSelector('.stat .value', { timeout: 45000 }).catch(() => null);
 
         const stats = await page.evaluate(() => {
@@ -68,7 +66,6 @@ async function fetchStatsFromWeb(riotId) {
         });
         
         await browser.close();
-        // إذا رجعت النتائج أصفار، نعتبرها فشل لعدم تحديث الليدربورد ببيانات خاطئة
         return stats.matches !== "0" ? stats : null;
     } catch (e) {
         console.error(`❌ Error fetching ${riotId}:`, e.message);
@@ -78,7 +75,7 @@ async function fetchStatsFromWeb(riotId) {
 }
 
 async function updateLeaderboardChannel() {
-    console.log('🔄 Updating Auto-Leaderboard...');
+    console.log('Updating Auto-Leaderboard');
     const channel = await client.channels.fetch(config.channelId).catch(() => null);
     if (!channel) return;
 
@@ -116,7 +113,7 @@ async function updateLeaderboardChannel() {
 
     if (oldMsg) await oldMsg.edit({ embeds: [embed] });
     else await channel.send({ embeds: [embed] });
-    console.log('✅ Leaderboard updated successfully!');
+    console.log('Leaderboard updated successfully');
 }
 
 client.once(Events.ClientReady, async () => {
@@ -143,7 +140,7 @@ client.on('interactionCreate', async interaction => {
         updateLeaderboardChannel();
     }
     if (interaction.commandName === 'profile') {
-        if (!users[interaction.user.id]) return interaction.reply('❌ اربط حسابك أولاً!');
+        if (!users[interaction.user.id]) return interaction.reply('❌ اربط حسابك أولا!');
         await interaction.deferReply();
         const stats = await fetchStatsFromWeb(users[interaction.user.id].riotId);
         if (!stats) return interaction.editReply('❌ فشل جلب البيانات، تأكد أن الحساب Public.');
