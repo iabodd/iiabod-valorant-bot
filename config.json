@@ -1,8 +1,8 @@
 
 
 {
-  "token": "MTQ5OTIyMzk5ODA0NTg4MDUwMg.G1X7Ho.r7DlsT67_cER-sM5w3OmkZl75d2dttTfyH_9MU",
-  "clientId": "1499223998045880502",
-  "guildId": "1401266508759437392",
-  "channelId": "1499225912070373489"
+  "token": "YOUR_TOKEN",
+  "clientId": "YOUR_DISCORD_BOT_CLIENTID",
+  "guildId": "UR_DISCORD_GUILDID",
+  "channelId": "LEADERBOARD_CHANELL"
 }
